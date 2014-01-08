@@ -230,7 +230,7 @@ class HTTPSignature {
 			if (!array_key_exists($alg[1], $map)) {
 				throw new InvalidAlgorithmError('unsupported algorithm');
 			}
-			$pkeyp = openssl_get_publickey($key);
+			$pkey = openssl_get_publickey($key);
 			if ($pkey === FALSE) {
 				throw new Exception('key could not be parsed');
 			}
