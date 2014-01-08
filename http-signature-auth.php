@@ -256,8 +256,14 @@ class HTTPSignature {
 		}
 	}
 
-	static function sign(array &$headers = array(), array $options = array())
+	static function sign(&$headers = array(), array $options = array())
 	{
+		if (is_null($headers)) {
+			$headers = array();
+		} elseif (!is_array($headers)) {
+			throw new Exception('headers are not an array');
+		}
+
 		if (!array_key_exists('keyId', $options)) {
 			throw new Exception('keyId option is missing');
 		} elseif (!is_string($options['keyId'])) {
