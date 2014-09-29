@@ -56,7 +56,9 @@ class HTTPSignature {
 			}
 		}
 
-		$headers['request-line'] = sprintf("%s %s %s", $_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI'], $_SERVER['SERVER_PROTOCOL']);
+		$headers['request-line'] = array_key_exists('requestLine', $options) ?
+		    $options['requestLine'] :
+		    sprintf("%s %s %s", $_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI'], $_SERVER['SERVER_PROTOCOL']);
 
 		foreach ($options['headers'] as $header) {
 			if (!array_key_exists($header, $headers)) {
@@ -293,8 +295,10 @@ class HTTPSignature {
 		if (!array_key_exists('date', $headers)) {
 			$headers['date'] = date(DATE_RFC1123);
 		}
-		/* XXX */
-		$headers['request-line'] = sprintf("%s %s %s", $_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI'], $_SERVER['SERVER_PROTOCOL']);
+
+		$headers['request-line'] = array_key_exists('requestLine', $options) ?
+		    $options['requestLine'] :
+		    sprintf("%s %s %s", $_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI'], $_SERVER['SERVER_PROTOCOL']);
 
 		$sign = array();
 		foreach ($options['headers'] as $header) {
@@ -317,6 +321,7 @@ class HTTPSignature {
 			}
 			$key = openssl_get_privatekey($options['key']);
 			if ($key === FALSE) {
+				error_log(openssl_error_string());
 				throw new Exception('key option could not be parsed');
 			}
 
