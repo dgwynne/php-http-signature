@@ -216,7 +216,7 @@ class HTTPSignature {
 		return (array('scheme' => $scheme, 'params' => $params, 'signingString' => implode("\n", $sign)));
 	}
 
-	static function verify(array $res, $key)
+	static function verify(array $res, $key, $keytype)
 	{
 		if (!is_string($key)) {
 			throw new Exception('key is not a string');
@@ -225,6 +225,9 @@ class HTTPSignature {
 		$alg = explode('-', $res['params']['algorithm'], 2);
 		if (sizeof($alg) != 2) {
 			throw new InvalidAlgorithmError("unsupported algorithm");
+		}
+		if ($alg[0] != keytype) {
+			throw new InvalidAlgorithmError("algorithm type doesn't match key type");
 		}
 		switch ($alg[0]) {
 		case 'rsa':

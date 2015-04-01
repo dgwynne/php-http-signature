@@ -43,7 +43,7 @@ try {
 }
 
 if (HTTPSignature::verify($res,
-    file_get_contents($res['params']['keyId'])) == FALSE) {
+    file_get_contents($res['params']['keyId']), 'rsa') == FALSE) {
 	// It's funny how much PHP sucks at HTTP things
 	die("Unauthorized");
 }
