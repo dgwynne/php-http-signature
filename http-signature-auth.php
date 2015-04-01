@@ -20,6 +20,7 @@ class ExpiredRequestError extends HttpSignatureError { };
 class InvalidHeaderError extends HttpSignatureError { };
 class InvalidParamsError extends HttpSignatureError { };
 class MissingHeaderError extends HttpSignatureError { };
+class InvalidAlgorithmError extends HttpSignatureError { };
 
 class HTTPSignature {
 
