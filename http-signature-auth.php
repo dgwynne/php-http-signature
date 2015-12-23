@@ -227,7 +227,7 @@ class HTTPSignature {
 		if (sizeof($alg) != 2) {
 			throw new InvalidAlgorithmError("unsupported algorithm");
 		}
-		if ($alg[0] != keytype) {
+		if ($alg[0] != $keytype) {
 			throw new InvalidAlgorithmError("algorithm type doesn't match key type");
 		}
 		switch ($alg[0]) {
