@@ -24,8 +24,12 @@ class InvalidAlgorithmError extends HttpSignatureError { };
 
 class HTTPSignature {
 
-	static function parse(array $headers, array $options = array())
+	static function parse(array $inheaders, array $options = array())
 	{
+		$headers = array();
+		foreach ($inheaders as $key => $value) {
+			$headers[strtolower($key)] = $value;
+		}
 		if (!array_key_exists('authorization', $headers)) {
 			throw new MissingHeaderError('no authorization header in the request');
 		}
