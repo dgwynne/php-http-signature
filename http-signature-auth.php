@@ -106,7 +106,7 @@ class HTTPSignature {
 
 			case $states['space'];
 				if (ctype_space($ch)) {
-					continue;
+					break;
 				}
 
 				$state = $states['param'];
