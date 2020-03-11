@@ -62,9 +62,9 @@ class HTTPSignature {
 			}
 		}
 
-		$headers['request-line'] = array_key_exists('requestLine', $options) ?
-		    $options['requestLine'] :
-		    sprintf("%s %s %s", $_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI'], $_SERVER['SERVER_PROTOCOL']);
+		$headers['(request-target)'] = array_key_exists('requestTarget', $options) ?
+		    $options['requestTarget'] :
+		    sprintf("%s %s", strtolower($_SERVER['REQUEST_METHOD']), $_SERVER['REQUEST_URI']);
 
 		foreach ($options['headers'] as $header) {
 			if (!array_key_exists($header, $headers)) {
@@ -214,9 +214,12 @@ class HTTPSignature {
 			}
 		}
 
+		$headers['(keyid)'] = $params['keyId'];
+		$headers['(algorithm)'] = $params['algorithm'];
+
 		$sign = array();
 		foreach ($params['headers'] as $header) {
-			$sign[] = $header === 'request-line' ? $headers['request-line'] : sprintf("%s: %s", $header, $headers[$header]);
+			$sign[] = sprintf("%s: %s", $header, $headers[$header]);
 		}
 
 		return (array('scheme' => $scheme, 'params' => $params, 'signingString' => implode("\n", $sign)));
@@ -314,6 +317,8 @@ class HTTPSignature {
 		}
 		if (!array_key_exists('key', $options)) {
 			throw new Exception('key option is missing');
+		} elseif (!is_string($options['key'])) {
+			throw new Exception('key option is not a string');
 		}
 
 		if (!array_key_exists('headers', $options)) {
@@ -365,16 +370,18 @@ class HTTPSignature {
 			$headers['date'] = date(DATE_RFC1123);
 		}
 
-		$headers['request-line'] = array_key_exists('requestLine', $options) ?
-		    $options['requestLine'] :
-		    sprintf("%s %s %s", $_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI'], $_SERVER['SERVER_PROTOCOL']);
+		$headers['(request-target)'] = array_key_exists('requestTarget', $options) ?
+		    $options['requestTarget'] :
+		    sprintf("%s %s", strtolower($_SERVER['REQUEST_METHOD']), $_SERVER['REQUEST_URI']);
+		$headers['(keyid)'] = $options['keyId'];
+		$headers['(algorithm)'] = $options['algorithm'];
 
 		$sign = array();
 		foreach ($options['headers'] as $header) {
 			if (!array_key_exists($header, $headers)) {
 				throw new MissingHeaderError("$header was not in the request");
 			}
-			$sign[] = $header === 'request-line' ? $headers['request-line'] : sprintf("%s: %s", $header, $headers[$header]);
+			$sign[] = sprintf("%s: %s", $header, $headers[$header]);
 		}
 		$data = join("\n", $sign);
 
@@ -407,7 +414,7 @@ class HTTPSignature {
 			}
 			if ($alg[0] === 'rsa' && $info['type'] !== OPENSSL_KEYTYPE_RSA) {
 				throw new KeyTypeError('key and algorithm options do not match');
-			} else if ($alg[0] === 'ecdsa' && $info['type'] !== OPENSSL_KEYTYPE_EC) {
+			} else if ($keytype === 'ecdsa' && $info['type'] !== OPENSSL_KEYTYPE_EC) {
 				throw new KeyTypeError('key and algorithm options do not match');
 			}
 
@@ -428,7 +435,9 @@ class HTTPSignature {
 		default:
 			throw new InvalidAlgorithmError("unsupported algorithm");
 		}
-		unset($headers['request-line']);
+		unset($headers['(request-target)']);
+		unset($headers['(keyid)']);
+		unset($headers['(algorithm)']);
 		$headers['authorization'] = sprintf('Signature keyId="%s",algorithm="%s",headers="%s",signature="%s"',
 		    $options['keyId'], $options['algorithm'], implode(' ', $options['headers']),
 		    base64_encode($signature));
