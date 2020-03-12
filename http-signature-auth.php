@@ -317,8 +317,6 @@ class HTTPSignature {
 		}
 		if (!array_key_exists('key', $options)) {
 			throw new Exception('key option is missing');
-		} elseif (!is_string($options['key'])) {
-			throw new Exception('key option is not a string');
 		}
 
 		if (!array_key_exists('headers', $options)) {
