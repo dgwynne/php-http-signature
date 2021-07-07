@@ -21,11 +21,16 @@ class InvalidHeaderError extends HttpSignatureError { };
 class InvalidParamsError extends HttpSignatureError { };
 class MissingHeaderError extends HttpSignatureError { };
 class InvalidAlgorithmError extends HttpSignatureError { };
+class KeyTypeError extends HttpSignatureError { };
 
 class HTTPSignature {
 
-	static function parse(array $headers, array $options = array())
+	static function parse(array $inheaders, array $options = array())
 	{
+		$headers = array();
+		foreach ($inheaders as $key => $value) {
+			$headers[strtolower($key)] = $value;
+		}
 		if (!array_key_exists('authorization', $headers)) {
 			throw new MissingHeaderError('no authorization header in the request');
 		}
@@ -57,9 +62,9 @@ class HTTPSignature {
 			}
 		}
 
-		$headers['request-line'] = array_key_exists('requestLine', $options) ?
-		    $options['requestLine'] :
-		    sprintf("%s %s %s", $_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI'], $_SERVER['SERVER_PROTOCOL']);
+		$headers['(request-target)'] = array_key_exists('requestTarget', $options) ?
+		    $options['requestTarget'] :
+		    sprintf("%s %s", strtolower($_SERVER['REQUEST_METHOD']), $_SERVER['REQUEST_URI']);
 
 		foreach ($options['headers'] as $header) {
 			if (!array_key_exists($header, $headers)) {
@@ -209,9 +214,12 @@ class HTTPSignature {
 			}
 		}
 
+		$headers['(keyid)'] = $params['keyId'];
+		$headers['(algorithm)'] = $params['algorithm'];
+
 		$sign = array();
 		foreach ($params['headers'] as $header) {
-			$sign[] = $header === 'request-line' ? $headers['request-line'] : sprintf("%s: %s", $header, $headers[$header]);
+			$sign[] = sprintf("%s: %s", $header, $headers[$header]);
 		}
 
 		return (array('scheme' => $scheme, 'params' => $params, 'signingString' => implode("\n", $sign)));
@@ -219,8 +227,34 @@ class HTTPSignature {
 
 	static function verify(array $res, $key, $keytype)
 	{
-		if (!is_string($key)) {
-			throw new Exception('key is not a string');
+		$freekey = FALSE;
+
+		switch ($keytype) {
+		case 'hmac':
+			if (!is_string($key))
+				throw new KeyTypeError('key is not a string');
+			break;
+		case 'rsa':
+		case 'ecdsa':
+			if (is_string($key)) {
+				$key = openssl_get_publickey($key);
+				if ($key === FALSE) {
+					throw new KeyTypeError('key could not be parsed');
+				}
+				$freekey = TRUE;
+			}
+			$info = openssl_pkey_get_details($key);
+			if ($info === FALSE) {
+				throw new KeyTypeError('key is not a string or a valid key resource');
+			}
+			if ($keytype === 'rsa' && $info['type'] !== OPENSSL_KEYTYPE_RSA) {
+				throw new KeyTypeError('key and keytype arguments do not match');
+			} else if ($keytype === 'ecdsa' && $info['type'] !== OPENSSL_KEYTYPE_EC) {
+				throw new KeyTypeError('key and keytype arguments do not match');
+			}
+			break;
+		default:
+			throw new KeyTypeError('unknown key type: ' . $keytype);
 		}
 
 		$alg = explode('-', $res['params']['algorithm'], 2);
@@ -232,17 +266,23 @@ class HTTPSignature {
 		}
 		switch ($alg[0]) {
 		case 'rsa':
-			$map = array('sha1' => OPENSSL_ALGO_SHA1, 'sha256' => OPENSSL_ALGO_SHA256, 'sha512' => OPENSSL_ALGO_SHA512);
+		case 'ecdsa':
+			$map = array(
+				'sha1' => OPENSSL_ALGO_SHA1,
+				'sha256' => OPENSSL_ALGO_SHA256,
+				'sha384' => OPENSSL_ALGO_SHA384,
+				'sha512' => OPENSSL_ALGO_SHA512
+			);
 			if (!array_key_exists($alg[1], $map)) {
 				throw new InvalidAlgorithmError('unsupported algorithm');
 			}
-			$pkey = openssl_get_publickey($key);
-			if ($pkey === FALSE) {
-				throw new Exception('key could not be parsed');
+			if ($alg[1] === 'sha1' && $alg[0] !== 'rsa') {
+				throw new InvalidAlgorithmError('unsupported algorithm');
 			}
 
-			$rv = openssl_verify($res['signingString'], base64_decode($res['params']['signature']), $pkey, $map[$alg[1]]);
-			openssl_free_key($pkey);
+			$rv = openssl_verify($res['signingString'], base64_decode($res['params']['signature']), $key, $map[$alg[1]]);
+			if ($freekey)
+				openssl_free_key($key);
 
 			switch ($rv) {
 			case 0:
@@ -277,8 +317,6 @@ class HTTPSignature {
 		}
 		if (!array_key_exists('key', $options)) {
 			throw new Exception('key option is missing');
-		} elseif (!is_string($options['key'])) {
-			throw new Exception('key option is not a string');
 		}
 
 		if (!array_key_exists('headers', $options)) {
@@ -292,24 +330,56 @@ class HTTPSignature {
 			}
 		}
 
+		$key = FALSE;
+		$freekey = FALSE;
 		if (!array_key_exists('algorithm', $options)) {
-			$options['algorithm'] = 'rsa-sha256';
+			if (is_string($options['key'])) {
+				$key = openssl_get_privatekey($options['key']);
+				if ($key === FALSE) {
+					error_log(openssl_error_string());
+					throw new Exception('no algorithm given, and key option could not be parsed as a private key');
+				}
+				$freekey = TRUE;
+			} else {
+				$key = $options['key'];
+			}
+			$info = openssl_pkey_get_details($key);
+			if ($info === FALSE) {
+				throw new Exception('no algorithm given, and key option was not a valid private key');
+			}
+			switch ($info['type']) {
+			case OPENSSL_KEYTYPE_RSA:
+				$options['algorithm'] = 'rsa-sha256';
+				break;
+			case OPENSSL_KEYTYPE_EC:
+				if ($info['bits'] <= 256)
+					$options['algorithm'] = 'ecdsa-sha256';
+				else if ($info['bits'] <= 384)
+					$options['algorithm'] = 'ecdsa-sha384';
+				else
+					$options['algorithm'] = 'ecdsa-sha512';
+				break;
+			default:
+				throw new Exception('no algorithm given, and key option is of unknown key type');
+			}
 		}
 
 		if (!array_key_exists('date', $headers)) {
 			$headers['date'] = date(DATE_RFC1123);
 		}
 
-		$headers['request-line'] = array_key_exists('requestLine', $options) ?
-		    $options['requestLine'] :
-		    sprintf("%s %s %s", $_SERVER['REQUEST_METHOD'], $_SERVER['REQUEST_URI'], $_SERVER['SERVER_PROTOCOL']);
+		$headers['(request-target)'] = array_key_exists('requestTarget', $options) ?
+		    $options['requestTarget'] :
+		    sprintf("%s %s", strtolower($_SERVER['REQUEST_METHOD']), $_SERVER['REQUEST_URI']);
+		$headers['(keyid)'] = $options['keyId'];
+		$headers['(algorithm)'] = $options['algorithm'];
 
 		$sign = array();
 		foreach ($options['headers'] as $header) {
 			if (!array_key_exists($header, $headers)) {
 				throw new MissingHeaderError("$header was not in the request");
 			}
-			$sign[] = $header === 'request-line' ? $headers['request-line'] : sprintf("%s: %s", $header, $headers[$header]);
+			$sign[] = sprintf("%s: %s", $header, $headers[$header]);
 		}
 		$data = join("\n", $sign);
 
@@ -319,28 +389,53 @@ class HTTPSignature {
 		}
 		switch ($alg[0]) {
 		case 'rsa':
-			$map = array('sha1' => OPENSSL_ALGO_SHA1, 'sha256' => OPENSSL_ALGO_SHA256, 'sha512' => OPENSSL_ALGO_SHA512);
+		case 'ecdsa':
+			$map = array(
+				'sha256' => OPENSSL_ALGO_SHA256,
+				'sha384' => OPENSSL_ALGO_SHA384,
+				'sha512' => OPENSSL_ALGO_SHA512
+			);
 			if (!array_key_exists($alg[1], $map)) {
 				throw new InvalidAlgorithmError('unsupported algorithm');
 			}
-			$key = openssl_get_privatekey($options['key']);
-			if ($key === FALSE) {
-				error_log(openssl_error_string());
-				throw new Exception('key option could not be parsed');
+			if ($key === FALSE && is_string($options['key'])) {
+				$key = openssl_get_privatekey($options['key']);
+				if ($key === FALSE) {
+					error_log(openssl_error_string());
+					throw new Exception('key option could not be parsed');
+				}
+				$freekey = TRUE;
+			}
+			$info = openssl_pkey_get_details($key);
+			if ($info === FALSE) {
+				throw new Exception('key option was not a string or valid key resource');
+			}
+			if ($alg[0] === 'rsa' && $info['type'] !== OPENSSL_KEYTYPE_RSA) {
+				throw new KeyTypeError('key and algorithm options do not match');
+			} else if ($keytype === 'ecdsa' && $info['type'] !== OPENSSL_KEYTYPE_EC) {
+				throw new KeyTypeError('key and algorithm options do not match');
 			}
 
 			if (openssl_sign($data, $signature, $key, $map[$alg[1]]) === FALSE) {
 				throw new Exception('unable to sign');
 			}
+
+			if ($freekey)
+				openssl_pkey_free($key);
 			break;
 
 		case 'hmac':
+			if (!is_string($options['key'])) {
+				throw new Exception('key option is not a string');
+			}
 			$signature = hash_hmac($alg[1], $data, $options['key'], true);
 			break;
 		default:
 			throw new InvalidAlgorithmError("unsupported algorithm");
 		}
-		unset($headers['request-line']);
+		unset($headers['(request-target)']);
+		unset($headers['(keyid)']);
+		unset($headers['(algorithm)']);
 		$headers['authorization'] = sprintf('Signature keyId="%s",algorithm="%s",headers="%s",signature="%s"',
 		    $options['keyId'], $options['algorithm'], implode(' ', $options['headers']),
 		    base64_encode($signature));
